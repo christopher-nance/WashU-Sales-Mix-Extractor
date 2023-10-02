@@ -1,6 +1,6 @@
 Sales Mix Extraction Tool
 
-Version 4.1
+Version 4.2.2
 
 09/18/2023
 
