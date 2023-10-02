@@ -9,6 +9,9 @@ The Sales Mix Extraction Tool is designed to extract sales data from a General S
 
 Dependencies:
 -	Access to SiteWatch Web (Version 27+) and the ability to run/export GSRs for all locations.
+-	Openpyxl
+-	Pandas
+-	Python 3.10+
 
 Instructions:
 1.	Visit SiteWatch Web and login with your user ID, Password and Location Code (WSHUIL-001).
