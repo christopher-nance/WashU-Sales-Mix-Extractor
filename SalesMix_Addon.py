@@ -1,5 +1,5 @@
 # Built by Christopher Nance for WashU Car Wash
-# Version 4.1
+# Version 4.2.2
 # Sales Mix Report Generator
 
 # Dependencies:
@@ -31,14 +31,6 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
     Corporation_Totals_Name = 'Corporation Totals'
     global monthsInReport
     monthsInReport = 1
-    desplainesOverride = False
-
-    WashPkgPrices = {
-        "express wash": 6,
-        "clean wash": 10,
-        "protect wash": 15,
-        "ushine wash": 20
-    }
 
     ARM_Sold_Names = {
         "Express Wash": {
@@ -259,6 +251,34 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 if target_str in value:
                     return key
         return None
+
+    def move_worksheet_to_position(workbook, worksheet, position):
+        """
+        Move a worksheet to a specific position within a workbook.
+
+        Parameters:
+        - workbook: The Workbook object where the worksheet resides.
+        - worksheet: The Worksheet object to be moved.
+        - position: The position (0-based index) where the worksheet should be moved to.
+
+        Returns:
+        - True if successful, False otherwise.
+        """
+        if worksheet not in workbook._sheets:
+            print("The worksheet is not in the given workbook.")
+            return False
+
+        if position < 0 or position >= len(workbook._sheets):
+            print("Invalid position.")
+            return False
+
+        # Remove the original worksheet from the list
+        workbook._sheets.remove(worksheet)
+
+        # Insert it back at the specified position
+        workbook._sheets.insert(position, worksheet)
+
+        return True
     
     #--> Utility Functions (Graphs)
     def createMiniBarGraph(worksheet, START_COL, START_ROW):
@@ -276,7 +296,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
 
         # Set the dimensions of the chart
         chart.height = 4.05  # height
-        chart.width = 9.5  # width
+        chart.width = 11.35  # width
 
         # Remove the legend
         chart.legend = None
@@ -476,22 +496,12 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
             start_date = start_date_dt.date()
             end_date = end_date_dt.date()
 
-            # Define the date range bounds for 8/14 - 8/23
-            lower_bound = date(2023, 8, 14)
-            upper_bound = date(2023, 8, 23)
-
-            # Check if the date range 8/14 - 8/23 is completely covered by start_date and end_date
-            is_range_covered = start_date <= lower_bound and end_date >= upper_bound
-            if is_range_covered: desplainesOverride = True
-
             # Convert the start and end dates from strings to datetime objects
             # Calculate the difference in days between the two dates
             delta = (end_date_dt- start_date_dt).days
 
             # Calculate the number of months
-            monthsInReport = delta / 30.44  # On average, a month is about 30.44 days
-
-            print('Months in report:', monthsInReport)
+            monthsInReport = (delta / 30.44) if (delta / 30.44) > 1 else 1  # On average, a month is about 30.44 days, always make sure it is greater than 1 or else there will be in correct stats
 
             return start_date, end_date
         else:
@@ -516,11 +526,11 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
 
         if site not in blacklisted_sites:
             if site not in MONTHLY_STATS:
-                MONTHLY_STATS[site] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0}}
+                MONTHLY_STATS[site] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}}
             if site not in COMBINED_STATS:
                 COMBINED_STATS[site] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}}
             if Corporation_Totals_Name not in MONTHLY_STATS:
-                MONTHLY_STATS[Corporation_Totals_Name] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0}}
+                MONTHLY_STATS[Corporation_Totals_Name] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}}
             if Corporation_Totals_Name not in COMBINED_STATS:
                 COMBINED_STATS[Corporation_Totals_Name] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}}
             
@@ -546,22 +556,22 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
         
         if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items:
 
-            COMBINED_SALES[site]['NET Sales'] += amount if amount != None else 0
-            COMBINED_SALES[Corporation_Totals_Name]['NET Sales'] += amount if amount != None else 0
+            COMBINED_SALES[site]['NET Sales'] += amount if pd.isna(amount) != True else 0
+            COMBINED_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
             if category in Discount_Categories:
-                COMBINED_SALES[site]['Discounts'] += amount if amount != None else 0
-                COMBINED_SALES[Corporation_Totals_Name]['Discounts'] += amount if amount != None else 0
+                COMBINED_SALES[site]['Discounts'] += amount if pd.isna(amount) != True else 0
+                COMBINED_SALES[Corporation_Totals_Name]['Discounts'] += amount if pd.isna(amount) != True else 0
 
             # Handle the Query Server
             if site == 'Query Server':
                 if find_parent(Website_PKG_Names, item_name, start_parent="Monthly") != None or category in Monthly_Total_Categories:
-                    MONTHLY_SALES['Query Server']['NET Sales'] += amount if amount != None else 0
-                    MONTHLY_SALES[Corporation_Totals_Name]['NET Sales'] += amount if amount != None else 0
+                    MONTHLY_SALES['Query Server']['NET Sales'] += amount if pd.isna(amount) != True else 0
+                    MONTHLY_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
             # Any other locations
             else: 
                 if category in Monthly_Total_Categories:
-                    MONTHLY_SALES[site]['NET Sales'] += amount if amount != None else 0
-                    MONTHLY_SALES[Corporation_Totals_Name]['NET Sales'] += amount if amount != None else 0
+                    MONTHLY_SALES[site]['NET Sales'] += amount if pd.isna(amount) != True else 0
+                    MONTHLY_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
 
             
 
@@ -599,10 +609,10 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
 
     MonthlyAmounts = {}
     CombinedAmounts = {}
-    AccurateMemberCountAdjuster = 0
+    AccurateMemberCountAdjuster = {}
     price_sum_dict = {}  # This will hold the sum of prices for each item for each site
     price_count_dict = {}  # This will hold the count of entries for each item for each site
-
+    totalCorporateDiscont = 0
 
     for _, row in df.iterrows():
         site = row['Site']
@@ -615,10 +625,12 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
         
         if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items:
             
-            ## TODO: Add period multiplier 
-
+            if AccurateMemberCountAdjuster.get(site) == None:
+                AccurateMemberCountAdjuster[site] = 0
             if item_name in ['WEB Discontinue ARM', 'Discontinue ARM Plan']:
-                AccurateMemberCountAdjuster += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
+                if AccurateMemberCountAdjuster.get(site) != None:
+                    AccurateMemberCountAdjuster[site] += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
+                    totalCorporateDiscont += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
 
             washPkg = find_parent(ARM_Recharge_Names, item_name) # Member Count = ARM Recharges
             if washPkg != None:
@@ -630,11 +642,14 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 MONTHLY_STATS[site][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
 
                 MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
-            washPkg = find_parent(ARM_Sold_Names, item_name) # Member Count = ARM Recharges + Website Sld + ARM Sld
+            washPkg = find_parent(ARM_Sold_Names, item_name) # Member Count = ARM Recharges + Website Sld + ARM Sld | Gross New Members = ARM Sold
             if washPkg != None:
                 MONTHLY_STATS[site][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                MONTHLY_STATS[site][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Gross New Members
 
                 MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                
             washPkg = find_parent(ARM_Termination_Names, item_name) # Member Count = ARM Recharges + Website Sld + ARM Sld - ARM Terminations
             if washPkg != None:
                 MONTHLY_STATS[site][washPkg]['Estimated Member Count'] -= round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
@@ -708,51 +723,147 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                         price_sum_dict[site][item_name] = []
                     price_sum_dict[site][item_name].append(price if pd.isna(price) != True else 0)'''
 
-    #print(json.dumps(price_sum_dict, indent=4))
     for washPkg in ARM_Sold_Names:
         COMBINED_STATS[Corporation_Totals_Name][washPkg]['Price'] = COMBINED_STATS[Corporation_Totals_Name][washPkg]['Amount']/COMBINED_STATS[Corporation_Totals_Name][washPkg]['Quantity']
         MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Price'] = MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Amount']/MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Quantity']
         #COMBINED_STATS[Corporation_Totals_Name][washPkg]['Price'] = sum(CombinedAmounts[washPkg])/len(CombinedAmounts[washPkg])
         #MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Price'] = sum(MonthlyAmounts[washPkg])/len(MonthlyAmounts[washPkg])
+    AccurateMemberCountAdjuster[Corporation_Totals_Name] = totalCorporateDiscont
     
     #########################################################################################################################################################################
     ############################################################################## T&C PARSING ##############################################################################
     #########################################################################################################################################################################
-    '''
-    ChurnRates = {}
-    df = pd.read_csv(trendsFilePath)
-    for _, row in df.iterrows():
-        date = row['Date']
-        plan = row['Plan']
-        site = row['Site']
-        washes_per_day = row['Washes per day']
-        upsells_dollars = row['Upsells (Dollars)']
-        upsells = row['Upsells']
-        plans_sold_dollars = row['Plans Sold (Dollars)']
-        plans_sold = row['Plans Sold']
-        recharges_dollars = row['Recharges (Dollars)']
-        recharges = row['Recharges']
-        plans_transferred_in = row['Plans Transferred In']
-        plans_transferred_out = row['Plans Transferred Out']
-        plans_transferred_in_dollars = row['Plans Transferred In (Dollars)']
-        plans_transferred_out_dollars = row['Plans Transferred Out (Dollars)']
-        suspended = row['Suspended']
-        suspended_dollars = row['Suspended (Dollars)']
-        resumed = row['Resumed']
-        resumed_dollars = row['Resumed (Dollars)']
-        plans_terminated = row['Plans Terminated']
-        plans_terminated_dollars = row['Plans Terminated (Dollars)']
-        plans_discontinued = row['Plans Discontinued']
-        cc_declining_expired = row['CC Declining + CC Expired']
-        expired_members = row['Expired Members']
-        members_per_day = row['Members per day']
-        revenue = row['Revenue']
-        pass_wash_percentage = row['Pass Wash Percentage']
-        churn_rate = row['Churn Rate']
+    ChurnByDay = {}
+    ChurnTotal = {}
+    if trendsFilePath is not None:
+        df = pd.read_csv(trendsFilePath)
+        for _, row in df.iterrows():
+            date = row['Date']
+            plan = row['Plan']
+            site = row['Site']
+            washes_per_day = row['Washes per day']
+            upsells_dollars = row['Upsells (Dollars)']
+            upsells = row['Upsells']
+            plans_sold_dollars = row['Plans Sold (Dollars)']
+            plans_sold = row['Plans Sold']
+            recharges_dollars = row['Recharges (Dollars)']
+            recharges = row['Recharges']
+            plans_transferred_in = row['Plans Transferred In']
+            plans_transferred_out = row['Plans Transferred Out']
+            plans_transferred_in_dollars = row['Plans Transferred In (Dollars)']
+            plans_transferred_out_dollars = row['Plans Transferred Out (Dollars)']
+            suspended = row['Suspended']
+            suspended_dollars = row['Suspended (Dollars)']
+            resumed = row['Resumed']
+            resumed_dollars = row['Resumed (Dollars)']
+            plans_terminated = row['Plans Terminated']
+            plans_terminated_dollars = row['Plans Terminated (Dollars)']
+            plans_discontinued = row['Plans Discontinued']
+            cc_declining_expired = row['CC Declining + CC Expired']
+            expired_members = row['Expired Members']
+            members_per_day = row['Members per day']
+            revenue = row['Revenue']
+            pass_wash_percentage = row['Pass Wash Percentage']
+            churn_rate = row['Churn Rate']
 
-    Need a formula to determine the churn rate for the corporatiion based off of the churn rate from the individual stores. 
+            if ChurnByDay.get(site) != None:
+                ChurnByDay[site].append(churn_rate)
+            else:
+                ChurnByDay[site] = []
+                ChurnByDay[site].append(churn_rate)
+
+    CorporateChurnRates = []
+    CorporateChurn = 0
+    for locationName, ratesList in ChurnByDay.items():
+        if trendsFilePath != None:
+            ChurnTotal[locationName] = round(sum(ChurnByDay[locationName])/len(ChurnByDay[locationName]), 4)
+            CorporateChurnRates.append(round(sum(ChurnByDay[locationName])/len(ChurnByDay[locationName]), 4))
+    
+    if CorporateChurnRates != []:
+        ChurnTotal[Corporation_Totals_Name] = round(sum(CorporateChurnRates)/len(CorporateChurnRates), 4)
+
+
+    ## Pass Plan Report Stuff...
 
     '''
+    # Function to read CSV, extract relevant data, and calculate churn rates
+    def calculate_churn_rates_from_csv(csv_file_path):
+        # Initialize variables to capture the data for the DataFrame
+        data_for_df = []
+        capture_data = False
+        headers = None
+        
+        # Read the CSV line by line
+        with open(csv_file_path, 'r') as f:
+            for line in f:
+                cells = line.strip().split(',')
+                
+                # Check if this is the line where the second cell starts with "Starting Members"
+                if len(cells) > 1 and cells[1].strip() == "Starting Members":
+                    capture_data = True
+                    
+                    # Replace the first cell with "Pass Plan Names" and capture headers
+                    cells[0] = "Pass Plan Names"
+                    headers = cells
+                    
+                    continue  # Skip to next iteration to start capturing data from next line
+                
+                if capture_data:
+                    # Make sure each data row has the same number of columns as the headers
+                    # Fill in any missing headers with "Unnamed_{i}"
+                    if len(cells) > len(headers):
+                        headers += [f'Unnamed_{i}' for i in range(len(headers), len(cells))]
+                    
+                    # Make sure each data row has the same number of columns as the headers
+                    cells += ['' for _ in range(len(cells), len(headers))]
+                    data_for_df.append(cells)
+        
+        # Create a Pandas DataFrame from the captured data
+        df = pd.DataFrame(data_for_df, columns=headers)
+        
+        # Initialize dictionary to store the calculated churn rates
+        churn_rates = {}
+        
+        # Loop through each row in the DataFrame
+        for _, row in df.iterrows():
+            pass_plan_name = row['Pass Plan Names']
+            
+            # Extract the relevant fields, converting them to float
+            try:
+                starting_members = float(row['Starting Members'])
+                joined = float(row['Joined'])
+                terminated = float(row['Terminated'])
+                discontinued = float(row['Discontinued'])
+                discontinuing = float(row['Discontinuing'])
+                expired = float(row['Expired'])
+            except ValueError:
+                # Handle potential conversion issues (e.g., if the cell is empty or not a number)
+                print(f"Skipping row with Pass Plan Name: {pass_plan_name} due to data issues.")
+                continue
+            
+            # Calculate churn rate using the provided formula
+            denominator = starting_members + joined
+            numerator = terminated + discontinued + discontinuing + expired
+            
+            # Check to avoid division by zero
+            if denominator != 0:
+                churn_rate = numerator / denominator
+            else:
+                churn_rate = None  # or some other indicator for undefined churn rate
+            
+            # Store the calculated churn rate in the dictionary
+            churn_rates[pass_plan_name] = churn_rate
+        
+        return churn_rates
+
+    # Test the function with the given CSV file
+    test_csv_path = '/mnt/data/Pass Plan Analysis 2023-08-31.csv'
+    calculate_churn_rates_from_csv(test_csv_path)
+
+        
+    '''
+
+
     #########################################################################################################################################################################
     ############################################################################## XCL LOADING ##############################################################################
     #########################################################################################################################################################################
@@ -809,8 +920,9 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
             worksheet.cell(row=start_row, column=start_col, value=location)
         else:
             worksheet.cell(row=start_row, column=start_col, value="E-Commerce Website")
-        
         worksheet.cell(row=start_row, column=start_col+5, value=monthsInReport)
+        print(AccurateMemberCountAdjuster)
+        worksheet.cell(row=start_row, column=start_col+6, value=AccurateMemberCountAdjuster[location])
         
         #--> BLOCK: Retail Stats
         #### Need to fill in the prices (average price) because the Quantity will be determined by the excel formulas.
@@ -821,10 +933,12 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
         #### Need to fill in the prices (average price) because the Quantity will be determined by the excel formulas.
         for i, (washPkg, pkgProps) in enumerate(MONTHLY_STATS[location].items()):
             worksheet.cell(row=start_row+12+i, column=start_col+1, value=pkgProps['Quantity'])
-            if location != Corporation_Totals_Name:
-                worksheet.cell(row=start_row+12+i, column=start_col+5, value=pkgProps['Estimated Member Count'])#-AccurateMemberCountAdjuster/len(WashPkgPrices)/monthsInReport) # Not sure if maybe adding some of the discontinuations makes it more accurate? 
-            else:
-                worksheet.cell(row=start_row+12+i, column=start_col+5, value=pkgProps['Estimated Member Count'])#-AccurateMemberCountAdjuster/len(WashPkgPrices)/monthsInReport)
+            worksheet.cell(row=start_row+12+i, column=start_col+5, value=pkgProps['Estimated Member Count'])
+            worksheet.cell(row=start_row+12+i, column=start_col+6, value=pkgProps['Gross New Members'])
+        if ChurnTotal.get(location):
+            worksheet.cell(row=start_row+17, column=start_col+4, value=ChurnTotal[location]/100)
+        else:
+            worksheet.cell(row=start_row+17, column=start_col+4, value='Not Available')
         worksheet.cell(row=start_row+17, column=start_col+1, value=MONTHLY_SALES[location]['NET Sales'])
 
         #--> BLOCK: Combined Stats
@@ -860,32 +974,34 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
             visualWorksheet = wb.copy_worksheet(ws)
             visualWorksheet.title = f'Sales Mix Charts ({location.strip("wash*u - ")})'
 
-            copy_cells(wb['Sales Mix by Location'], start_row, start_row+28, start_col, start_col+5, 1, 1, visualWorksheet)
+            copy_cells(wb['Sales Mix by Location'], start_row, start_row+28, start_col, start_col+6, 1, 1, visualWorksheet)
 
             # Generate Graphs
             # Retail Sales Mix (Qty)
-            createPieChart(visualWorksheet, "H2", Reference(visualWorksheet, min_col=3, min_row=4, max_col=3, max_row=7), Reference(visualWorksheet, min_col=1, min_row=4, max_col=1, max_row=7), "Retail Sales Mix (Qty)")
+            createPieChart(visualWorksheet, "I2", Reference(visualWorksheet, min_col=3, min_row=4, max_col=3, max_row=7), Reference(visualWorksheet, min_col=1, min_row=4, max_col=1, max_row=7), "Retail Sales Mix (Qty)")
             # Monthly Membership Mix (Qty)
-            createPieChart(visualWorksheet, "J2", Reference(visualWorksheet, min_col=3, min_row=13, max_col=3, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Monthly Membership Mix (Qty)")
+            createPieChart(visualWorksheet, "K2", Reference(visualWorksheet, min_col=3, min_row=13, max_col=3, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Monthly Membership Mix (Qty)")
             # Combined Wash Mix (Qty)
-            createPieChart(visualWorksheet, "L2", Reference(visualWorksheet, min_col=3, min_row=22, max_col=3, max_row=25), Reference(visualWorksheet, min_col=1, min_row=22, max_col=1, max_row=25), "Combined Wash Mix (Qty)")
+            createPieChart(visualWorksheet, "M2", Reference(visualWorksheet, min_col=3, min_row=22, max_col=3, max_row=25), Reference(visualWorksheet, min_col=1, min_row=22, max_col=1, max_row=25), "Combined Wash Mix (Qty)")
             
             # Net Revenue Breakdown (%)
-            createPieChart(visualWorksheet, "H19", Reference(visualWorksheet, min_col=3, min_row=41, max_col=3, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown (%)", 13.95, 14.25)
+            createPieChart(visualWorksheet, "I19", Reference(visualWorksheet, min_col=3, min_row=41, max_col=3, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown (%)", 13.95, 14.25)
             # Net Revenue Breakdown ($)
-            createPieChart(visualWorksheet, "K19", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown ($)", 13.95, 14.25)
+            createPieChart(visualWorksheet, "L19", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown ($)", 13.95, 14.25)
             # Retail Revenue Breakdown (%)
-            createPieChart(visualWorksheet, "H43", Reference(visualWorksheet, min_col=4, min_row=41, max_col=4, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown (%)", 13.95, 14.25)
+            createPieChart(visualWorksheet, "I43", Reference(visualWorksheet, min_col=4, min_row=41, max_col=4, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown (%)", 13.95, 14.25)
             # Retail Revenue Breakdown ($)
-            createPieChart(visualWorksheet, "K43", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown ($)", 13.95, 14.25)
+            createPieChart(visualWorksheet, "L43", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown ($)", 13.95, 14.25)
             
             # Monthly Membership Utilization
-            createBarGraph(visualWorksheet, "O2", Reference(visualWorksheet, min_col=5, min_row=13, max_col=5, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Avg. Monthly Pass Utilization", y_axisTitle="Average # of Washes over Period")
+            createBarGraph(visualWorksheet, "P2", Reference(visualWorksheet, min_col=5, min_row=13, max_col=5, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Avg. Monthly Pass Utilization", y_axisTitle="Average # of Washes over Period")
             # Monthly Membership Count
-            createBarGraph(visualWorksheet, "O19", Reference(visualWorksheet, min_col=6, min_row=13, max_col=6, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Total Number of Monthly Members", y_axisTitle="Number of Members")
+            createBarGraph(visualWorksheet, "P19", Reference(visualWorksheet, min_col=6, min_row=13, max_col=6, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Total Number of Monthly Members", y_axisTitle="Number of Members")
+            # Monthly NEW members
+            createBarGraph(visualWorksheet, "P36", Reference(visualWorksheet, min_col=7, min_row=13, max_col=7, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Average Num. of NEW Monthly Members", y_axisTitle="Number of Members")
 
             # Traffic Pie in pie Chart (Retail + Monthly, then monthly broken into its own pie chart)
-            createPieInPieChart(visualWorksheet, "O36", Reference(visualWorksheet, min_col=2, min_row=52, max_col=2, max_row=59), Reference(visualWorksheet, min_col=1, min_row=52, max_col=1, max_row=59), "Retail & Monthly Wash Mix", y_axisTitle="Number of Members")
+            createPieInPieChart(visualWorksheet, "P36", Reference(visualWorksheet, min_col=2, min_row=52, max_col=2, max_row=59), Reference(visualWorksheet, min_col=1, min_row=52, max_col=1, max_row=59), "Retail & Monthly Wash Mix", y_axisTitle="Number of Members")
 
             createMiniBarGraph(visualWorksheet, 1, 3-2)
             createMiniBarGraph(visualWorksheet, 1, 21-2)
@@ -898,32 +1014,37 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
             visualWorksheet = wb.copy_worksheet(ws)
             visualWorksheet.title = 'Sales Mix Charts (Corporation)'
 
-            copy_cells(wb['Sales Mix by Location'], start_row, start_row+28, start_col, start_col+5, 1, 1, visualWorksheet)
+            # Position the Corporation Sheet towards the front
+            move_worksheet_to_position(wb, visualWorksheet, 2)
+
+            copy_cells(wb['Sales Mix by Location'], start_row, start_row+28, start_col, start_col+6, 1, 1, visualWorksheet)
 
             # Generate Graphs (Same graphs as designed from the locations)
             # Retail Sales Mix (Qty)
-            createPieChart(visualWorksheet, "H2", Reference(visualWorksheet, min_col=3, min_row=4, max_col=3, max_row=7), Reference(visualWorksheet, min_col=1, min_row=4, max_col=1, max_row=7), "Retail Sales Mix (Qty)")
+            createPieChart(visualWorksheet, "I2", Reference(visualWorksheet, min_col=3, min_row=4, max_col=3, max_row=7), Reference(visualWorksheet, min_col=1, min_row=4, max_col=1, max_row=7), "Retail Sales Mix (Qty)")
             # Monthly Membership Mix (Qty)
-            createPieChart(visualWorksheet, "J2", Reference(visualWorksheet, min_col=3, min_row=13, max_col=3, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Monthly Membership Mix (Qty)")
+            createPieChart(visualWorksheet, "K2", Reference(visualWorksheet, min_col=3, min_row=13, max_col=3, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Monthly Membership Mix (Qty)")
             # Combined Wash Mix (Qty)
-            createPieChart(visualWorksheet, "L2", Reference(visualWorksheet, min_col=3, min_row=22, max_col=3, max_row=25), Reference(visualWorksheet, min_col=1, min_row=22, max_col=1, max_row=25), "Combined Wash Mix (Qty)")
+            createPieChart(visualWorksheet, "M2", Reference(visualWorksheet, min_col=3, min_row=22, max_col=3, max_row=25), Reference(visualWorksheet, min_col=1, min_row=22, max_col=1, max_row=25), "Combined Wash Mix (Qty)")
             
             # Net Revenue Breakdown (%)
-            createPieChart(visualWorksheet, "H19", Reference(visualWorksheet, min_col=3, min_row=41, max_col=3, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown (%)", 13.95, 14.25)
+            createPieChart(visualWorksheet, "I19", Reference(visualWorksheet, min_col=3, min_row=41, max_col=3, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown (%)", 13.95, 14.25)
             # Net Revenue Breakdown ($)
-            createPieChart(visualWorksheet, "K19", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown ($)", 13.95, 14.25)
+            createPieChart(visualWorksheet, "L19", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown ($)", 13.95, 14.25)
             # Retail Revenue Breakdown (%)
-            createPieChart(visualWorksheet, "H43", Reference(visualWorksheet, min_col=4, min_row=41, max_col=4, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown (%)", 13.95, 14.25)
+            createPieChart(visualWorksheet, "I43", Reference(visualWorksheet, min_col=4, min_row=41, max_col=4, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown (%)", 13.95, 14.25)
             # Retail Revenue Breakdown ($)
-            createPieChart(visualWorksheet, "K43", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown ($)", 13.95, 14.25)
+            createPieChart(visualWorksheet, "L43", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown ($)", 13.95, 14.25)
             
             # Monthly Membership Utilization
-            createBarGraph(visualWorksheet, "O36", Reference(visualWorksheet, min_col=5, min_row=13, max_col=5, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Avg. Monthly Pass Utilization", y_axisTitle="Average # of Washes")
+            createBarGraph(visualWorksheet, "P53", Reference(visualWorksheet, min_col=5, min_row=13, max_col=5, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Avg. Monthly Pass Utilization", y_axisTitle="Average # of Washes")
             # Monthly Membership Count
-            createBarGraph(visualWorksheet, "O19", Reference(visualWorksheet, min_col=6, min_row=13, max_col=6, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Total Num. of Monthly Members", y_axisTitle="Number of Members")
-
+            createBarGraph(visualWorksheet, "P19", Reference(visualWorksheet, min_col=6, min_row=13, max_col=6, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Average Num. of Monthly Members", y_axisTitle="Number of Members")
+            # Monthly NEW members
+            createBarGraph(visualWorksheet, "P36", Reference(visualWorksheet, min_col=7, min_row=13, max_col=7, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Average Num. of NEW Monthly Members", y_axisTitle="Number of Members")
+        
             # Traffic Pie in pie Chart (Retail + Monthly, then monthly broken into its own pie chart)
-            createPieInPieChart(visualWorksheet, "O2", Reference(visualWorksheet, min_col=2, min_row=52, max_col=2, max_row=59), Reference(visualWorksheet, min_col=1, min_row=52, max_col=1, max_row=59), "Retail & Monthly Wash Mix")
+            createPieInPieChart(visualWorksheet, "P2", Reference(visualWorksheet, min_col=2, min_row=52, max_col=2, max_row=59), Reference(visualWorksheet, min_col=1, min_row=52, max_col=1, max_row=59), "Retail & Monthly Wash Mix")
 
             createMiniBarGraph(visualWorksheet, 1, 3-2)
             createMiniBarGraph(visualWorksheet, 1, 21-2)
@@ -948,7 +1069,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                     total_retail_revenue_mix_data[location] = COMBINED_SALES[location]['NET Sales'] - MONTHLY_SALES[location]['NET Sales']
                     for washPkg in COMBINED_STATS[location]:
                         if location not in retail_revenue_mix_data: retail_revenue_mix_data[location] = {}
-                        retail_revenue_mix_data[location].update({washPkg: (COMBINED_STATS[location][washPkg]['Quantity'] - MONTHLY_STATS[location][washPkg]['Quantity'])*COMBINED_STATS[location][washPkg]['Price']})#WashPkgPrices[washPkg.lower()]})
+                        retail_revenue_mix_data[location].update({washPkg: (COMBINED_STATS[location][washPkg]['Quantity'] - MONTHLY_STATS[location][washPkg]['Quantity'])*COMBINED_STATS[location][washPkg]['Price']})
                     retail_revenue_mix_data[location].update({'Discounts': COMBINED_SALES[location]['Discounts']})
 
             monthly_quantity_mix_data = {}
@@ -982,6 +1103,15 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                         combined_quantity_mix_data[location].update({washPkg: COMBINED_STATS[location][washPkg]['Quantity']})
             
 
+            corporate_churn_rates_data = {}
+
+            for location in ChurnTotal:
+                if location not in [Corporation_Totals_Name, 'Query Server']:
+                    if location not in corporate_churn_rates_data: 
+                        corporate_churn_rates_data[location] = 0
+                    corporate_churn_rates_data.update({location: ChurnTotal[location]})
+            
+
             combined_revenue_mix_data = {}
             total_combined_revenue_mix_data = {}
 
@@ -1001,6 +1131,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 number_format='$#,##0.00',  # or you could use 'Accounting'
                 alignment=Alignment(horizontal='right')
             )
+            percent_style_2 = NamedStyle(name='percent_style_2', number_format='0.00%')
 
             '''# Loop through each location and its corresponding wash packages
             for location, washPackages in retail_quantity_mix_data.items():
@@ -1036,7 +1167,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 # Move to the next row to start adding the next location
                 start_row += 1  # Shift 2 rows down for the next location
 
-            createCorporateBarGraph(worksheet, "AA2", Reference(worksheet, min_col=2, min_row=75, max_col=5, max_row=start_row), Reference(worksheet, min_col=1, min_row=76, max_col=1, max_row=start_row), "Retail Wash Sales by Site (QTY)", y_axisTitle="# Washes Sold")
+            createCorporateBarGraph(worksheet, "AB2", Reference(worksheet, min_col=2, min_row=75, max_col=5, max_row=start_row), Reference(worksheet, min_col=1, min_row=76, max_col=1, max_row=start_row), "Retail Wash Sales by Site (QTY)", y_axisTitle="# Washes Sold")
 
             
             start_row += 1  # Shift 2 rows down for the next location
@@ -1077,7 +1208,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 # Move to the next row to start adding the next location
                 start_row += 1  # Shift 2 rows down for the next location
             
-            createCorporatePieChart(visualWorksheet, "AM2", Reference(visualWorksheet, min_col=2, min_row=washLabelRow+1, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Retail Revenue Breakdown (%)", showPercents=True)
+            createCorporatePieChart(visualWorksheet, "AN2", Reference(visualWorksheet, min_col=2, min_row=washLabelRow+1, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Retail Revenue Breakdown (%)", showPercents=True)
 
 
             start_row += 3  # Shift 2 rows down for the next location
@@ -1098,7 +1229,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 
                 # Move to the next row to start adding the next location
                 start_row += 1  # Shift 2 rows down for the next location
-            createCorporateBarGraph(worksheet, "AA37", Reference(visualWorksheet, min_col=2, min_row=washLabelRow, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Monthly Wash Rdmds by Site (QTY)", y_axisTitle="# Washes Rdmd")
+            createCorporateBarGraph(worksheet, "AB37", Reference(visualWorksheet, min_col=2, min_row=washLabelRow, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Monthly Wash Rdmds by Site (QTY)", y_axisTitle="# Washes Rdmd")
 
             
             start_row += 1  # Shift 2 rows down for the next location
@@ -1139,7 +1270,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 # Move to the next row to start adding the next location
                 start_row += 1  # Shift 2 rows down for the next location
             
-            createCorporatePieChart(visualWorksheet, "AM37", Reference(visualWorksheet, min_col=2, min_row=washLabelRow+1, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Monthly Revenue Breakdown (%)", showPercents=True)
+            createCorporatePieChart(visualWorksheet, "AN37", Reference(visualWorksheet, min_col=2, min_row=washLabelRow+1, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Monthly Revenue Breakdown (%)", showPercents=True)
 
 
 
@@ -1163,7 +1294,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 # Move to the next row to start adding the next location
                 start_row += 1  # Shift 2 rows down for the next location
 
-            createCorporateBarGraph(worksheet, "AA74", Reference(visualWorksheet, min_col=2, min_row=washLabelRow, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Combined Wash Sales by Site (QTY)", y_axisTitle="# Washes Sold")
+            createCorporateBarGraph(worksheet, "AB74", Reference(visualWorksheet, min_col=2, min_row=washLabelRow, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Combined Wash Sales by Site (QTY)", y_axisTitle="# Washes Sold")
 
             
             start_row += 1  # Shift 2 rows down for the next location
@@ -1204,7 +1335,27 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 # Move to the next row to start adding the next location
                 start_row += 1  # Shift 2 rows down for the next location
             
-            createCorporatePieChart(visualWorksheet, "AM74", Reference(visualWorksheet, min_col=2, min_row=washLabelRow+1, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Combined Revenue Breakdown ($)", showPercents=True)
+            createCorporatePieChart(visualWorksheet, "AN74", Reference(visualWorksheet, min_col=2, min_row=washLabelRow+1, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Combined Revenue Breakdown ($)", showPercents=True)
+
+
+            start_row += 1  # Shift 2 rows down for the next location
+            washLabelRow = start_row
+            
+            for location in corporate_churn_rates_data:
+                # Write location name to the sheet
+                worksheet.cell(row=start_row + 1, column=start_col, value=location.strip("wash*u - "))
+                
+                
+                # Increment the column to start adding wash packages for this location
+                current_col = start_col + 1
+                
+                worksheet.cell(row=start_row + 1, column=current_col, value=corporate_churn_rates_data[location]/100).style = percent_style_2
+                current_col += 1  # Move to the next column for the next wash package
+                
+                # Move to the next row to start adding the next location
+                start_row += 1  # Shift 2 rows down for the next location
+            
+            createBarGraph(visualWorksheet, "P71", Reference(visualWorksheet, min_col=2, min_row=washLabelRow+1, max_col=5, max_row=start_row), Reference(visualWorksheet, min_col=1, min_row=washLabelRow+1, max_col=1, max_row=start_row), "Churn Rate by Location (%)")
 
 
 
@@ -1222,17 +1373,17 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
         locations.remove("Query Server")
     for location in locations:
         print(f"Creating {location} Stats Block...")
-        copy_cells(ws, 3, 30, 1, 6, 3, start_col) #copy_cells(ws, 1, 28, 1, 6, 1, start_col)
+        copy_cells(ws, 3, 30, 1, 7, 3, start_col) #copy_cells(ws, 1, 28, 1, 6, 1, start_col)
         populate_salesmix_worksheet(ws, 3, start_col, location)
-        start_col += 7
+        start_col += 8
     
     copy_cells(ws, 3, 30, 1, 7, 32, 1)
     populate_salesmix_worksheet(ws, 32, 1, Corporation_Totals_Name)
 
     if not "Query Server" in blacklisted_sites:
         print("Creating Query Server Stats Block...")
-        copy_cells(ws, 3, 30, 1, 7, 32, 8)
-        populate_salesmix_worksheet(ws, 32, 8, "Query Server")
+        copy_cells(ws, 3, 30, 1, 7, 32, 9)
+        populate_salesmix_worksheet(ws, 32, 9, "Query Server")
 
     
         
@@ -1394,23 +1545,8 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
     ############################################################################ GRAPHS CREATION ############################################################################
     #########################################################################################################################################################################
         
-
-
-    if 'Sales Mix Charts (Des Plaine)' in wb.sheetnames and desplainesOverride == True:
-        #wb.remove('Sales Mix by Location (Visual)')
-        wb['Sales Mix Charts (Des Plaine)'].cell(row=29, column=1, value='NOTICE: Due to the free wash weekend, Des Plaines will show an abnormal amount of UShine wash sales which subsequently distorts some charts.')
-        # Define the fill color (in this case, yellow)
-        yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
-
-        # Apply the fill color to cells A29 to F29
-        for column in range(1, 7):  # Columns A to F
-            cell = wb['Sales Mix Charts (Des Plaine)'].cell(row=29, column=column)
-            cell.fill = yellow_fill
-            cell.font = Font(size=12, bold=True)
+    wb._sheets.remove(wb['Sales Mix by Location (Visual)'])
 
 
     wbName = f"Sales Mix - {short_date_str}"
     return wb, wbName
-
-wb, wbName = createSalesMixSheet("input.csv", "input_tac.csv", "Sales_Mix_Template.xlsx")
-wb.save(wbName)
