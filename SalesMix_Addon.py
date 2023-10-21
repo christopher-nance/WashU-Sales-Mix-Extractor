@@ -1,9 +1,13 @@
 # Built by Christopher Nance for WashU Car Wash
-# Version 4.3.0
+# Version 5.0
 # Sales Mix Report Generator
 
 # Dependencies:
 # > Python 3.10
+# > Datetime
+# > Calendar
+# > re
+# > copy
 # > Pandas
 # > Openpyxl
 # > DRB Systems' SiteWatch 27
@@ -18,8 +22,9 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.chart.label import DataLabelList
 from copy import copy
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import re
+import calendar
 
 
 Corporation_Totals_Name = 'Corporation Totals'
@@ -29,6 +34,8 @@ monthsInReport = 1
 ARM_Sold_Names = {
     "Express Wash": {
         "New Mnthly Express",
+        "Mnth Exp 9.95 (BOGO)", # Added 10/16/23
+        "New Mnthly Exp 9.95" # Added 10/16/23
     },
     "Clean Wash": {
         "Mnth Cln 9.95 (BOGO)",
@@ -43,6 +50,7 @@ ARM_Sold_Names = {
         "Mnth USh 9.95 (BOGO)",
         "Monthly UShine Promo",
         "Monthly UShine Sld",
+        "Mnth USh 9.95 (BOGO)" # Added 10/16/23
     },
 }
 
@@ -56,7 +64,8 @@ ARM_Recharge_Names = {
     },
     "Protect Wash": {
         "New Mnthly Prot Rchg",
-        "Mnthly Prot 6mo Rchg"
+        "Mnthly Prot 6mo Rchg",
+        
     },
     "UShine Wash": {
         "Monthly UShine Rchg"
@@ -73,7 +82,13 @@ ARM_Termination_Names = {
     "Clean Wash": {
         "Monthly Cln '21 Rfnd",
         "MonthlyCln'21 NoRfnd",
+        "New MonthlyCleNoRfnd"
+        "New Monthly Cle Rfnd"
     },
+    #"Shine Wash": {
+    # "New Mnthly Shn NoRfn",
+    # "New Mnthly Shn Rfnd"
+    #},
     "Protect Wash": {
         "Mnthly Prot 6m NRfnd",
         "Mnthly Prot 6mo Rfnd",
@@ -87,6 +102,7 @@ ARM_Termination_Names = {
 }
 
 ARM_PKG_Names = {
+    # Databook uses a modfied version which excludes the CLUB plans. 
     "Express Wash": {
         "New Mnthly Exp Rdmd",
         "New Monthly Expr Rdm",
@@ -99,6 +115,7 @@ ARM_PKG_Names = {
         "CLUB-clean Rdmd",
         "Monthly Cln '21 Rdmd",
         "COMP-CLUB-clean Rdmd",
+        "W-Mon Clean V Rdmd",
     },
     "Protect Wash": {
         "3 Mo Protect Rdmd",
@@ -141,6 +158,7 @@ Website_PKG_Names = {
         },
         "Clean Wash": {
             "W-Mnthly Cln '21 Sld",
+            "W-Mon Clean V Sld"
         },
         "Protect Wash": {
             "W-Unl. Prot 9.95 Sld",
@@ -149,6 +167,8 @@ Website_PKG_Names = {
         "UShine Wash": {
             "W-MonthlyUShine Sld",
             "W-UShine 9.95 Sld",
+            "W-Mon UShine V Sld",
+            "W-MonthlyUShine Sld"
         },
     }
 }
@@ -181,6 +201,8 @@ blacklisted_items = [
     "Picture Mismatch",
     "Employees"
     #"Website Sold"
+    "Terminate ARM Plan",
+    "Terminate ARMNoRfnd"
 ]
 blacklisted_sites = [
     # Add sites to this list to EXCLUDE them from the report.
@@ -191,6 +213,7 @@ blacklisted_sites = [
     #"wash*u - Joliet",
     #"wash*u - Des Plaines",
     #"wash*u - Des Plaine"
+    #"Query Server"
 ]
     
 Monthly_Total_Categories = [
@@ -211,21 +234,24 @@ Discount_Categories = [
     "Wash LPM Discounts",
     "Prepaid Redeemed"
 ]
-MONTHLY_STATS = {}
-COMBINED_STATS = {}
-COMBINED_SALES = {}
-MONTHLY_SALES = {}
-
-HIST_MONTHLY_STATS = {}
-HIST_COMBINED_STATS = {}
-HIST_COMBINED_SALES = {}
-HIST_MONTHLY_SALES = {}
 
 
-def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForParser, historicalGSRFilePath=None, trendsFilePath=None, excludedLocations=None):
+
+def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForParser, fileNameForParser2=None, historicalGSRFilePath=None, trendsFilePath=None, excludedLocations=None):
     #--> Create Dictionaries for looking up item names.
     # TODO: This needs to be attached to a database and allow insertions through the manager portal or a form.
+    MONTHLY_STATS = {}
+    COMBINED_STATS = {}
+    COMBINED_SALES = {}
+    MONTHLY_SALES = {}
 
+    HIST_MONTHLY_STATS = {}
+    HIST_COMBINED_STATS = {}
+    HIST_COMBINED_SALES = {}
+    HIST_MONTHLY_SALES = {}
+
+    columnsToCopy = 11
+    rowsToCopy = 32
 
     #--> Utility Functions
     def find_parent(json_obj, target_str, start_parent=None, current_parent=None):
@@ -484,38 +510,56 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
     # Read the CSV file to extract the start date and end date
     df = pd.read_csv(gsrFilePath, nrows=2)  # Reading only the first 2 rows
 
-    def extract_dates_from_filepath():
-        # Extract the file name from the file path
-        filename = fileNameForParser
+    def extract_dates_from_filepath(hist=False):
         global monthsInReport
-        # Use regular expression to find dates in the filename
-        match = re.search(r"(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})", filename)
-        
-        if match:
-            start_date_str, end_date_str = match.groups()
+        if hist == False:
+            # Extract the file name from the file path
+            filename = fileNameForParser
             
-            # Convert the extracted date strings to datetime objects
-            start_date_dt = datetime.strptime(start_date_str, '%Y-%m-%d')
-            end_date_dt = datetime.strptime(end_date_str, '%Y-%m-%d')
+            # Use regular expression to find dates in the filename
+            match = re.search(r"(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})", filename)
+            
+            if match:
+                start_date_str, end_date_str = match.groups()
+                
+                # Convert the extracted date strings to datetime objects
+                start_date_dt = datetime.strptime(start_date_str, '%Y-%m-%d')
+                end_date_dt = datetime.strptime(end_date_str, '%Y-%m-%d')
 
-            start_date = start_date_dt.date()
-            end_date = end_date_dt.date()
+                start_date = start_date_dt.date()
+                end_date = end_date_dt.date()
 
-            # Convert the start and end dates from strings to datetime objects
-            # Calculate the difference in days between the two dates
-            delta = (end_date_dt- start_date_dt).days
+                # Convert the start and end dates from strings to datetime objects
+                # Calculate the difference in days between the two dates
+                delta = (end_date_dt- start_date_dt).days
 
-            # Calculate the number of months
-            monthsInReport = (delta / 30.44) if (delta / 30.44) > 1 else 1  # On average, a month is about 30.44 days, always make sure it is greater than 1 or else there will be in correct stats
+                # Calculate the number of months
+                monthsInReport = (delta / 30.44) if (delta / 30.44) > 1 else 1  # On average, a month is about 30.44 days, always make sure it is greater than 1 or else there will be in correct stats
 
-            return start_date, end_date
+                return start_date, end_date
+            else:
+                return None, None
         else:
-            return None, None
+            # Extract the file name from the file path
+            filename = fileNameForParser2
+            # Use regular expression to find dates in the filename
+            match = re.search(r"(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})", filename)
+            
+            if match:
+                start_date_str, end_date_str = match.groups()
+                
+                # Convert the extracted date strings to datetime objects
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
 
-    # Example usage
+                return start_date, end_date
+            else:
+                return None, None
+
+    start_date_hist, end_date_hist = extract_dates_from_filepath(hist=True)
+    complete_date_str_hist = str(start_date_hist) + ' - ' + str(end_date_hist)
+
     start_date, end_date = extract_dates_from_filepath()
-    print(start_date, end_date)
-    # Format the date strings
     short_date_str, complete_date_str = str(start_date) + ' - ' + str(end_date), str(start_date) + ' - ' + str(end_date)
         
     #--> Prepare dictionaries for data entry
@@ -559,7 +603,7 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
         item_name = row['Item Name']
         amount = row['Amount']
         
-        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items:
+        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items and item_name not in blacklisted_items:
 
             COMBINED_SALES[site]['NET Sales'] += amount if pd.isna(amount) != True else 0
             COMBINED_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
@@ -630,7 +674,7 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
         price = row['Price']
         quantity = row['Quantity']
         
-        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items:
+        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items and item_name not in blacklisted_items:
 
             if ChurnDataDictionary.get(site) == None:
                 ChurnDataDictionary[site] = {"Terminated":0, "Discontinued":0, "Recharged":0, "Sold":0, "Switched":0}
@@ -641,8 +685,8 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
                 AccurateMemberCountAdjuster[site] = 0
             if item_name in ['WEB Discontinue ARM', 'Discontinue ARM Plan']:
                 if AccurateMemberCountAdjuster.get(site) != None:
-                    AccurateMemberCountAdjuster[site] += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
-                    totalCorporateDiscont += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
+                    AccurateMemberCountAdjuster[site] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
+                    totalCorporateDiscont += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
                     ChurnDataDictionary[site]['Discontinued'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
                     ChurnDataDictionary[Corporation_Totals_Name]['Discontinued'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
 
@@ -695,7 +739,9 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
                     MONTHLY_STATS['Query Server'][washPkg]['Count'] += count if pd.isna(count) != True else 0
                     MONTHLY_STATS['Query Server'][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
                     MONTHLY_STATS['Query Server'][washPkg]['Price'] += price if pd.isna(price) != True else 0
-
+                    MONTHLY_STATS['Query Server'][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Gross New Members
+    
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
                     MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
                     MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Count'] += count if pd.isna(count) != True else 0
                     MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
@@ -808,7 +854,7 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
         item_name = row['Item Name']
         amount = row['Amount']
         
-        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items:
+        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items and item_name not in blacklisted_items:
 
             HIST_COMBINED_SALES[site]['NET Sales'] += amount if pd.isna(amount) != True else 0
             HIST_COMBINED_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
@@ -879,7 +925,7 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
         price = row['Price']
         quantity = row['Quantity']
         
-        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items:
+        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items and item_name not in blacklisted_items:
 
             if HIST_ChurnDataDictionary.get(site) == None:
                 HIST_ChurnDataDictionary[site] = {"Terminated":0, "Discontinued":0, "Recharged":0, "Sold":0, "Switched":0}
@@ -890,8 +936,8 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
                 HIST_AccurateMemberCountAdjuster[site] = 0
             if item_name in ['WEB Discontinue ARM', 'Discontinue ARM Plan']:
                 if HIST_AccurateMemberCountAdjuster.get(site) != None:
-                    HIST_AccurateMemberCountAdjuster[site] += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
-                    HIST_totalCorporateDiscont += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
+                    HIST_AccurateMemberCountAdjuster[site] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
+                    HIST_totalCorporateDiscont += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
                     HIST_ChurnDataDictionary[site]['Discontinued'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
                     HIST_ChurnDataDictionary[Corporation_Totals_Name]['Discontinued'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
 
@@ -944,7 +990,9 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
                     HIST_MONTHLY_STATS['Query Server'][washPkg]['Count'] += count if pd.isna(count) != True else 0
                     HIST_MONTHLY_STATS['Query Server'][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
                     HIST_MONTHLY_STATS['Query Server'][washPkg]['Price'] += price if pd.isna(price) != True else 0
-
+                    HIST_MONTHLY_STATS['Query Server'][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Gross New Members
+    
+                    HIST_MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
                     HIST_MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
                     HIST_MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Count'] += count if pd.isna(count) != True else 0
                     HIST_MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
@@ -1176,7 +1224,7 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
                 worksheet.cell(row=start_row+23+i, column=start_col+5, value=pkgProps['Price'])
         
         worksheet.cell(row=start_row+28, column=start_col+1, value=COMBINED_SALES[location]['NET Sales'])
-        worksheet.cell(row=start_row+28, column=start_col+4, value=COMBINED_SALES[location]['Discounts'])
+        worksheet.cell(row=start_row+28, column=start_col+5, value=COMBINED_SALES[location]['Discounts'])
         #### HISTORICAL DATA ENTRIES
         for i, (washPkg, pkgProps) in enumerate(HIST_COMBINED_STATS[location].items()):
             if location != 'Query Server':
@@ -1189,9 +1237,11 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
         
         #--> Query Server Modifications:
         if location == "Query Server":
-            worksheet.cell(row=start_row+12, column=start_col+1, value="ARM Plans Sold")
+            worksheet.cell(row=start_row+12, column=start_col+1, value="ARM Plans Sold (Pres.)")
+            worksheet.cell(row=start_row+12, column=start_col+2, value="ARM Plans Sold (Prev.)")
             worksheet.cell(row=start_row+17, column=start_col, value="Total Plans Sold")
-            worksheet.cell(row=start_row+22, column=start_col+1, value="Items Sold")
+            worksheet.cell(row=start_row+22, column=start_col+1, value="Items Sold (Pres.)")
+            worksheet.cell(row=start_row+22, column=start_col+2, value="Items Sold (Prev.)")
             worksheet.cell(row=start_row+27, column=start_col, value="Total Items Sold for Period")
         
         
@@ -1205,15 +1255,15 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
             visualWorksheet = wb.copy_worksheet(ws)
             visualWorksheet.title = f'Sales Mix Charts ({location.strip("wash*u - ")})'
 
-            copy_cells(wb['Sales Mix by Location'], start_row, start_row+28, start_col, start_col+10, 1, 1, visualWorksheet)
+            copy_cells(wb['Sales Mix by Location'], start_row, start_row+rowsToCopy, start_col, start_col+columnsToCopy, 1, 1, visualWorksheet)
 
-            # Generate Graphs
+            # Generate Graphs ==> Data Reference, Category Reference
             # Retail Sales Mix (Qty)
-            createPieChart(visualWorksheet, "M2", Reference(visualWorksheet, min_col=3, min_row=4, max_col=3, max_row=7), Reference(visualWorksheet, min_col=1, min_row=4, max_col=1, max_row=7), "Retail Sales Mix (Qty)")
+            createPieChart(visualWorksheet, "M2", Reference(visualWorksheet, min_col=2, min_row=4, max_col=2, max_row=7), Reference(visualWorksheet, min_col=1, min_row=4, max_col=1, max_row=7), "Retail Sales Mix (Qty)")
             # Monthly Membership Mix (Qty)
-            createPieChart(visualWorksheet, "O2", Reference(visualWorksheet, min_col=3, min_row=13, max_col=3, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Monthly Membership Mix (Qty)")
+            createPieChart(visualWorksheet, "O2", Reference(visualWorksheet, min_col=5, min_row=14, max_col=5, max_row=17), Reference(visualWorksheet, min_col=1, min_row=14, max_col=1, max_row=17), "Monthly Membership Mix (Qty)")
             # Combined Wash Mix (Qty)
-            createPieChart(visualWorksheet, "Q2", Reference(visualWorksheet, min_col=3, min_row=22, max_col=3, max_row=25), Reference(visualWorksheet, min_col=1, min_row=22, max_col=1, max_row=25), "Combined Wash Mix (Qty)")
+            createPieChart(visualWorksheet, "Q2", Reference(visualWorksheet, min_col=2, min_row=24, max_col=2, max_row=27), Reference(visualWorksheet, min_col=1, min_row=24, max_col=1, max_row=27), "Combined Wash Mix (Qty)")
             
             # Net Revenue Breakdown (%)
             createPieChart(visualWorksheet, "M19", Reference(visualWorksheet, min_col=3, min_row=41, max_col=3, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown (%)", 13.95, 14.25)
@@ -1225,17 +1275,17 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
             createPieChart(visualWorksheet, "P43", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown ($)", 13.95, 14.25)
             
             # Monthly Membership Utilization
-            createBarGraph(visualWorksheet, "T2", Reference(visualWorksheet, min_col=5, min_row=13, max_col=5, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Avg. Monthly Pass Utilization", y_axisTitle="Average # of Washes over Period")
+            createBarGraph(visualWorksheet, "T2", Reference(visualWorksheet, min_col=7, min_row=14, max_col=7, max_row=17), Reference(visualWorksheet, min_col=1, min_row=14, max_col=1, max_row=17), "Avg. Monthly Pass Utilization", y_axisTitle="Average # of Washes over Period")
             # Monthly Membership Count
-            createBarGraph(visualWorksheet, "T19", Reference(visualWorksheet, min_col=6, min_row=13, max_col=6, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Total Number of Monthly Members", y_axisTitle="Number of Members")
+            createBarGraph(visualWorksheet, "T19", Reference(visualWorksheet, min_col=8, min_row=14, max_col=8, max_row=17), Reference(visualWorksheet, min_col=1, min_row=14, max_col=1, max_row=17), "Total Number of Monthly Members", y_axisTitle="Number of Members")
             # Monthly NEW members
-            createBarGraph(visualWorksheet, "T36", Reference(visualWorksheet, min_col=7, min_row=13, max_col=7, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Average Num. of NEW Monthly Members", y_axisTitle="Number of Members")
+            createBarGraph(visualWorksheet, "T36", Reference(visualWorksheet, min_col=11, min_row=14, max_col=11, max_row=17), Reference(visualWorksheet, min_col=1, min_row=14, max_col=1, max_row=17), "Average Num. of NEW Monthly Members", y_axisTitle="Number of Members")
 
             # Traffic Pie in pie Chart (Retail + Monthly, then monthly broken into its own pie chart)
             createPieInPieChart(visualWorksheet, "T36", Reference(visualWorksheet, min_col=2, min_row=52, max_col=2, max_row=59), Reference(visualWorksheet, min_col=1, min_row=52, max_col=1, max_row=59), "Retail & Monthly Wash Mix", y_axisTitle="Number of Members")
 
             createMiniBarGraph(visualWorksheet, 1, 3-2)
-            createMiniBarGraph(visualWorksheet, 1, 21-2)
+            createMiniBarGraph(visualWorksheet, 1, 23-2)
         elif location == Corporation_Totals_Name:
             # Due to the nature of the corporate tab, data is built in this function and then churned into graphs, rather than allowing the spreadsheet to handle it.
             # This is because the number of locations is dynamic and changing therefore we cannot hard-code the corporate graph data functions like we do with the others.
@@ -1248,15 +1298,15 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
             # Position the Corporation Sheet towards the front
             move_worksheet_to_position(wb, visualWorksheet, 2)
 
-            copy_cells(wb['Sales Mix by Location'], start_row, start_row+28, start_col, start_col+10, 1, 1, visualWorksheet)
+            copy_cells(wb['Sales Mix by Location'], start_row, start_row+rowsToCopy, start_col, start_col+columnsToCopy, 1, 1, visualWorksheet)
 
-            # Generate Graphs (Same graphs as designed from the locations)
+            # Generate Graphs ==> Data Reference, Category Reference
             # Retail Sales Mix (Qty)
-            createPieChart(visualWorksheet, "M2", Reference(visualWorksheet, min_col=3, min_row=4, max_col=3, max_row=7), Reference(visualWorksheet, min_col=1, min_row=4, max_col=1, max_row=7), "Retail Sales Mix (Qty)")
+            createPieChart(visualWorksheet, "M2", Reference(visualWorksheet, min_col=2, min_row=4, max_col=2, max_row=7), Reference(visualWorksheet, min_col=1, min_row=4, max_col=1, max_row=7), "Retail Sales Mix (Qty)")
             # Monthly Membership Mix (Qty)
-            createPieChart(visualWorksheet, "O2", Reference(visualWorksheet, min_col=3, min_row=13, max_col=3, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Monthly Membership Mix (Qty)")
+            createPieChart(visualWorksheet, "O2", Reference(visualWorksheet, min_col=5, min_row=14, max_col=5, max_row=17), Reference(visualWorksheet, min_col=1, min_row=14, max_col=1, max_row=17), "Monthly Membership Mix (Qty)")
             # Combined Wash Mix (Qty)
-            createPieChart(visualWorksheet, "Q2", Reference(visualWorksheet, min_col=3, min_row=22, max_col=3, max_row=25), Reference(visualWorksheet, min_col=1, min_row=22, max_col=1, max_row=25), "Combined Wash Mix (Qty)")
+            createPieChart(visualWorksheet, "Q2", Reference(visualWorksheet, min_col=2, min_row=24, max_col=2, max_row=27), Reference(visualWorksheet, min_col=1, min_row=24, max_col=1, max_row=27), "Combined Wash Mix (Qty)")
             
             # Net Revenue Breakdown (%)
             createPieChart(visualWorksheet, "M19", Reference(visualWorksheet, min_col=3, min_row=41, max_col=3, max_row=46), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=46), "Net Revenue Breakdown (%)", 13.95, 14.25)
@@ -1268,14 +1318,14 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
             createPieChart(visualWorksheet, "P43", Reference(visualWorksheet, min_col=2, min_row=41, max_col=2, max_row=45), Reference(visualWorksheet, min_col=1, min_row=41, max_col=1, max_row=45), "Retail Revenue Breakdown ($)", 13.95, 14.25)
             
             # Monthly Membership Utilization
-            createBarGraph(visualWorksheet, "T53", Reference(visualWorksheet, min_col=5, min_row=13, max_col=5, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Avg. Monthly Pass Utilization", y_axisTitle="Average # of Washes")
+            createBarGraph(visualWorksheet, "T2", Reference(visualWorksheet, min_col=7, min_row=14, max_col=7, max_row=17), Reference(visualWorksheet, min_col=1, min_row=14, max_col=1, max_row=17), "Avg. Monthly Pass Utilization", y_axisTitle="Average # of Washes over Period")
             # Monthly Membership Count
-            createBarGraph(visualWorksheet, "T19", Reference(visualWorksheet, min_col=6, min_row=13, max_col=6, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Average Num. of Monthly Members", y_axisTitle="Number of Members")
+            createBarGraph(visualWorksheet, "T19", Reference(visualWorksheet, min_col=8, min_row=14, max_col=8, max_row=17), Reference(visualWorksheet, min_col=1, min_row=14, max_col=1, max_row=17), "Total Number of Monthly Members", y_axisTitle="Number of Members")
             # Monthly NEW members
-            createBarGraph(visualWorksheet, "T36", Reference(visualWorksheet, min_col=7, min_row=13, max_col=7, max_row=16), Reference(visualWorksheet, min_col=1, min_row=13, max_col=1, max_row=16), "Average Num. of NEW Monthly Members", y_axisTitle="Number of Members")
-        
+            createBarGraph(visualWorksheet, "T36", Reference(visualWorksheet, min_col=11, min_row=14, max_col=11, max_row=17), Reference(visualWorksheet, min_col=1, min_row=14, max_col=1, max_row=17), "Average Num. of NEW Monthly Members", y_axisTitle="Number of Members")
+
             # Traffic Pie in pie Chart (Retail + Monthly, then monthly broken into its own pie chart)
-            createPieInPieChart(visualWorksheet, "T2", Reference(visualWorksheet, min_col=2, min_row=52, max_col=2, max_row=59), Reference(visualWorksheet, min_col=1, min_row=52, max_col=1, max_row=59), "Retail & Monthly Wash Mix")
+            createPieInPieChart(visualWorksheet, "T36", Reference(visualWorksheet, min_col=2, min_row=52, max_col=2, max_row=59), Reference(visualWorksheet, min_col=1, min_row=52, max_col=1, max_row=59), "Retail & Monthly Wash Mix", y_axisTitle="Number of Members")
 
             createMiniBarGraph(visualWorksheet, 1, 3-2)
             createMiniBarGraph(visualWorksheet, 1, 23-2)
@@ -1596,12 +1646,10 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
     wb = openpyxl.load_workbook(templateFilePath)
     ws = wb['Sales Mix by Location']
 
-    columnsToCopy = 11
-    rowsToCopy = 32
-
     start_col = 1
     #--> Assign a report date to the report.
-    ws.cell(row=1, column=2, value=complete_date_str)
+    ws.cell(row=1, column=1, value="Report Periods:")
+    ws.cell(row=1, column=2, value=complete_date_str + " (Pres.)  &  " + complete_date_str_hist + " (Prev.)")
     locations = list(MONTHLY_STATS.keys())
     locations.remove("Corporation Totals")
     if "Query Server" in locations:
@@ -1782,10 +1830,38 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
     #########################################################################################################################################################################
         
     wb._sheets.remove(wb['Sales Mix by Location (Visual)'])
+    '''
+    MONTHLY_STATS = {}
+    COMBINED_STATS = {}
+    COMBINED_SALES = {}
+    MONTHLY_SALES = {}
 
+    HIST_MONTHLY_STATS = {}
+    HIST_COMBINED_STATS = {}
+    HIST_COMBINED_SALES = {}
+    HIST_MONTHLY_SALES = {}
+    '''
 
     wbName = f"Sales Mix - {short_date_str}"
-    return wb, wbName
+    return (
+        wb, 
+        wbName, 
+        {
+            "Monthly Stats": MONTHLY_STATS,
+            "Combined Stats": COMBINED_STATS,
+            "Combined Sales": COMBINED_SALES,
+            "Monthly Sales": MONTHLY_SALES,
+            "Historical Monthly Stats": HIST_MONTHLY_STATS,
+            "Historical Combined Stats": HIST_COMBINED_STATS,
+            "Historical Combined Sales": HIST_COMBINED_SALES,
+            "Historical Monthly Sales": HIST_MONTHLY_SALES,
+            "Churn Data Dictionary": ChurnDataDictionary,
+            "Historical Churn Data Dictionary": HIST_ChurnDataDictionary,
+            "Churn Total": ChurnTotal,
+            "Historical Churn Total": HIST_ChurnTotal
+        },
+        complete_date_str + " (Pres.)  &  " + complete_date_str_hist + " (Prev.)"
+    )
 
 
     #########################################################################################################################################################################
@@ -1805,9 +1881,12 @@ def createSalesMixSheetWithVariance(gsrFilePath, templateFilePath, fileNameForPa
 def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trendsFilePath=None, excludedLocations=None):
     #--> Create Dictionaries for looking up item names.
     # TODO: This needs to be attached to a database and allow insertions through the manager portal or a form.
-    Corporation_Totals_Name = 'Corporation Totals'
     global monthsInReport
     monthsInReport = 1
+    MONTHLY_STATS = {}
+    COMBINED_STATS = {}
+    COMBINED_SALES = {}
+    MONTHLY_SALES = {}
 
 
     #--> Utility Functions
@@ -2142,7 +2221,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
         item_name = row['Item Name']
         amount = row['Amount']
         
-        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items:
+        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items and item_name not in blacklisted_items:
 
             COMBINED_SALES[site]['NET Sales'] += amount if pd.isna(amount) != True else 0
             COMBINED_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
@@ -2213,7 +2292,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
         price = row['Price']
         quantity = row['Quantity']
         
-        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items:
+        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items and item_name not in blacklisted_items:
 
             if ChurnDataDictionary.get(site) == None:
                 ChurnDataDictionary[site] = {"Terminated":0, "Discontinued":0, "Recharged":0, "Sold":0, "Switched":0}
@@ -2224,8 +2303,8 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 AccurateMemberCountAdjuster[site] = 0
             if item_name in ['WEB Discontinue ARM', 'Discontinue ARM Plan']:
                 if AccurateMemberCountAdjuster.get(site) != None:
-                    AccurateMemberCountAdjuster[site] += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
-                    totalCorporateDiscont += quantity if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
+                    AccurateMemberCountAdjuster[site] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
+                    totalCorporateDiscont += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
                     ChurnDataDictionary[site]['Discontinued'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
                     ChurnDataDictionary[Corporation_Totals_Name]['Discontinued'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
 
@@ -2254,7 +2333,7 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                 MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
                 ChurnDataDictionary[site]['Sold'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
                 ChurnDataDictionary[Corporation_Totals_Name]['Sold'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Qty is already negative in the GSR, need to add it.
-                
+                 
             washPkg = find_parent(ARM_Termination_Names, item_name) # Member Count = ARM Recharges + Website Sld + ARM Sld - ARM Terminations
             if washPkg != None:
                 MONTHLY_STATS[site][washPkg]['Estimated Member Count'] -= round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
@@ -2278,7 +2357,9 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
                     MONTHLY_STATS['Query Server'][washPkg]['Count'] += count if pd.isna(count) != True else 0
                     MONTHLY_STATS['Query Server'][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
                     MONTHLY_STATS['Query Server'][washPkg]['Price'] += price if pd.isna(price) != True else 0
-
+                    MONTHLY_STATS['Query Server'][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Gross New Members
+    
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
                     MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
                     MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Count'] += count if pd.isna(count) != True else 0
                     MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
@@ -3083,13 +3164,706 @@ def createSalesMixSheet(gsrFilePath, templateFilePath, fileNameForParser, trends
         copy_cells(ws, 1, 3, 1, 6, 1, start_col)
         populate_discountmix_worksheet(ws, 1, start_col, location, data)
         start_col += 7
-    
-    #########################################################################################################################################################################
-    ############################################################################ GRAPHS CREATION ############################################################################
-    #########################################################################################################################################################################
         
     wb._sheets.remove(wb['Sales Mix by Location (Visual)'])
 
 
     wbName = f"Sales Mix - {short_date_str}"
+    return wb, wbName
+
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+    #########################################################################################################################################################################
+
+def appendToAWPWorkbook(gsrFilePath, templateFilePath, fileNameForParser, AWP_Template, overrideInputValidation=None):
+    #--> Kind of a lazy appending function that takes a lot of the data from the Sales Mix report code and uses it here.
+    #--> This should help standardize the data we view at WashU making more reports use the same numbers from the same data source(s). 
+    #--> This is a RUNNING WORKSHEET, which means that each month a new version is created when the correct GSR and setting is turned on in the portal.
+
+    #--> Create Dictionaries for looking up item names.
+    # TODO: This needs to be attached to a database and allow insertions through the manager portal or a form.
+    global monthsInReport
+    monthsInReport = 1
+    MONTHLY_STATS = {}
+    COMBINED_STATS = {}
+    COMBINED_SALES = {}
+    MONTHLY_SALES = {}
+
+    ARM_PKG_Names = {
+        "Express Wash": {
+            "New Mnthly Exp Rdmd",
+            "New Monthly Expr Rdm",
+            #"3 Mo Express Rdmd",
+            #"CLUB-express Rdmd",
+            #"COMP-CLUB-xprs Rdmd",
+        },
+        "Clean Wash": {
+            #"3 Mo Clean Rdmd",
+            #"CLUB-clean Rdmd",
+            "Monthly Cln '21 Rdmd",
+            #"COMP-CLUB-clean Rdmd",
+            "W-Mon Clean V Rdmd",
+        },
+        "Protect Wash": {
+            #"3 Mo Protect Rdmd",
+            #"City Fire Club Rdmd",
+            #"CLUB-protect Rdmd",
+            #"COMP-CLUB-prot Rdmd",
+            "Mnthly Prot 6mo Rdmd",
+            "New Mnthy Prot Rdmd",
+            "New Mnthly Prot Rdmd",
+        },
+        "UShine Wash": {
+            "Monthly UShine Rdmd",
+            #"3 Mo UShine Rdmd",
+            #"CLUB-ushine Rdmd",
+            #"COMP-CLUB-ushin Rdmd",
+            #"Free Week UShine Rdm",
+        },
+    }
+    Monthly_Total_Categories = [
+        # Member revenue is calculated by adding amounts from these categories.
+        "ARM Plans Sold", 
+        "ARM Plans Recharged", 
+        #"Club Plans Sold", 
+        "ARM Plans Terminated"
+    ]
+    ARM_Sold_Names = {
+        "Express Wash": {
+            "New Mnthly Express",
+            "Mnth Exp 9.95 (BOGO)", # Added 10/16/23
+            "New Mnthly Exp 9.95" # Added 10/16/23
+        },
+        "Clean Wash": {
+            "Mnth Cln 9.95 (BOGO)",
+            "Monthly Cln '21 9.95",
+            "Monthly Cln '21 Sld",
+            "3 Mo CleanClubSldTS",
+        },
+        "Protect Wash": {
+            "Mnthly Protect Promo",
+            "New Mnthly Protect",
+            "City Fire Club Sld",
+            "3 Mo Protect ClubSld"
+        },
+        "UShine Wash": {
+            "Mnth USh 9.95 (BOGO)",
+            "Monthly UShine Promo",
+            "Monthly UShine Sld",
+            "Mnth USh 9.95 (BOGO)" # Added 10/16/23
+        },
+    }
+
+
+    #--> Utility Functions
+    def find_parent(json_obj, target_str, start_parent=None, current_parent=None):
+        """
+        Searches for a string in a nested JSON object (Python dict) starting from a specified parent,
+        and returns the parent key under which the string resides.
+        
+        Parameters:
+        - json_obj (dict): The JSON object to search through.
+        - target_str (str): The string to look for.
+        - start_parent (str): The parent key from where to start the search.
+        - current_parent: The current parent key, used for recursion.
+        
+        Returns:
+        - The parent key under which the string resides, or None if the string is not found.
+        """
+        if start_parent and current_parent is None:
+            json_obj = json_obj.get(start_parent, {})
+            
+        for key, value in json_obj.items():
+            if key == target_str:
+                return current_parent
+            if isinstance(value, dict):
+                result = find_parent(value, target_str, None, key)
+                if result:
+                    return result
+            elif isinstance(value, (list, set)):
+                if target_str in value:
+                    return key
+        return None
+    
+    
+    #########################################################################################################################################################################
+    ############################################################################## GSR PARSING ##############################################################################
+    #########################################################################################################################################################################
+    #--> Gather Start/End Dates for the report
+
+    # Read the CSV file to extract the start date and end date
+    df = pd.read_csv(gsrFilePath, nrows=2)  # Reading only the first 2 rows
+    global GSR_YEAR
+    global GSR_MONTH
+    GSR_YEAR = 0
+    GSR_MONTH = 0
+    oneCalendarMonthGSR = False
+    monthsInReport = None
+
+    def is_valid_date(date_str, date_format='%Y-%m-%d'):
+        try:
+            datetime.strptime(date_str, date_format)
+            return True
+        except ValueError:
+            return False
+
+    def extract_dates_from_filepath():
+        # Initialize variables
+        global GSR_MONTH
+        global GSR_YEAR
+        global monthsInReport
+        global oneCalendarMonthGSR
+        
+        # Use regular expression to find dates in the filename
+        match = re.search(r"(\d{4}-\d{2}-\d{2})-(\d{4}-\d{2}-\d{2})", fileNameForParser)
+        
+        if match:
+            start_date_str, end_date_str = match.groups()
+            
+            # Check if dates are valid
+            if not is_valid_date(start_date_str) or not is_valid_date(end_date_str):
+                print("Invalid date(s) in filename. Skipping...")
+                return None, None, None
+            
+            # Convert the extracted date strings to datetime objects
+            start_date_dt = datetime.strptime(start_date_str, '%Y-%m-%d')
+            end_date_dt = datetime.strptime(end_date_str, '%Y-%m-%d')
+
+            start_date = start_date_dt.date()
+            end_date = end_date_dt.date()
+
+            GSR_YEAR = start_date.year
+            GSR_MONTH = start_date.month
+
+            # Calculate the difference in days between the two dates
+            delta = (end_date_dt - start_date_dt).days
+
+            _, last_day = calendar.monthrange(start_date.year, start_date.month)
+
+            # Directly compare start_date and end_date to determine if the report spans one calendar month
+            oneCalendarMonthGSR = (start_date.year == end_date.year) and (
+                (end_date.month == start_date.month and end_date.day == last_day) or
+                (end_date.month == start_date.month + 1 and end_date.day == start_date.day - 1)
+            )
+                
+            # Calculate the number of months (keeping your original logic here)
+            monthsInReport = (delta / 30.44) if (delta / 30.44) > 1 else 1
+            
+            if not oneCalendarMonthGSR:
+                print("Uploaded GSR is not one calendar month.. script will error.")
+                
+            return start_date, end_date, oneCalendarMonthGSR
+        else:
+            return None, None, None
+
+    # Example usage
+    start_date, end_date, oneCalendarMonthGSR = extract_dates_from_filepath()
+    print(start_date, end_date)
+    # Format the date strings
+    short_date_str, complete_date_str = str(start_date) + ' - ' + str(end_date), str(start_date) + ' - ' + str(end_date)
+
+    if oneCalendarMonthGSR == False and overrideInputValidation == None:
+        return "error501", f"The GSR you submitted spanning date range: {complete_date_str} is not one calendar month and therefore will not be added to the provided template. Please download a calendar month GSR and upload that along with your specified databook template."
+        
+    #--> Prepare dictionaries for data entry
+    df = pd.read_csv(gsrFilePath)
+    mask = ~df['Site'].isin(blacklisted_sites)
+    df = df[mask]
+    for _, row in df.iterrows():
+        site = row['Site']
+        print("Calculating for", site)
+        category = row['Report Category']
+        item_name = row['Item Name']
+        amount = row['Amount']
+
+        if site not in blacklisted_sites:
+            if site not in MONTHLY_STATS:
+                MONTHLY_STATS[site] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}}
+            if site not in COMBINED_STATS:
+                COMBINED_STATS[site] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}}
+            if Corporation_Totals_Name not in MONTHLY_STATS:
+                MONTHLY_STATS[Corporation_Totals_Name] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0, 'Estimated Member Count': 0, 'Gross New Members': 0}}
+            if Corporation_Totals_Name not in COMBINED_STATS:
+                COMBINED_STATS[Corporation_Totals_Name] = {"Express Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "Clean Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "Protect Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}, "UShine Wash":{'Count': 0, 'Price': 0, 'Quantity': 0, 'Amount': 0}}
+            
+            if site not in MONTHLY_SALES:
+                MONTHLY_SALES[site] = {"NET Sales": 0}
+            if site not in COMBINED_SALES:
+                COMBINED_SALES[site] = {"Discounts": 0, "NET Sales": 0}
+            if Corporation_Totals_Name not in MONTHLY_SALES:
+                MONTHLY_SALES[Corporation_Totals_Name] = {"NET Sales": 0}
+            if Corporation_Totals_Name not in COMBINED_SALES:
+                COMBINED_SALES[Corporation_Totals_Name] = {"Discounts": 0, "NET Sales": 0}
+
+    #--> Gather TOTAL sales & discounts details
+    #NOTE: RETAIL statistics are determined based off of Combined & Monthly. Spreadsheet formulas will determine the Quantity and Totals as well.
+    df = pd.read_csv(gsrFilePath)
+    mask = ~df['Site'].isin(blacklisted_sites)
+    df = df[mask]
+    for _, row in df.iterrows():
+        site = row['Site']
+        category = row['Report Category']
+        item_name = row['Item Name']
+        amount = row['Amount']
+        
+        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items and item_name not in blacklisted_items:
+
+            COMBINED_SALES[site]['NET Sales'] += amount if pd.isna(amount) != True else 0
+            COMBINED_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
+            if category in Discount_Categories:
+                COMBINED_SALES[site]['Discounts'] += amount if pd.isna(amount) != True else 0
+                COMBINED_SALES[Corporation_Totals_Name]['Discounts'] += amount if pd.isna(amount) != True else 0
+
+            # Handle the Query Server
+            if site == 'Query Server':
+                if find_parent(Website_PKG_Names, item_name, start_parent="Monthly") != None or category in Monthly_Total_Categories:
+                    MONTHLY_SALES['Query Server']['NET Sales'] += amount if pd.isna(amount) != True else 0
+                    MONTHLY_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
+            # Any other locations
+            else: 
+                if category in Monthly_Total_Categories:
+                    MONTHLY_SALES[site]['NET Sales'] += amount if pd.isna(amount) != True else 0
+                    MONTHLY_SALES[Corporation_Totals_Name]['NET Sales'] += amount if pd.isna(amount) != True else 0
+
+            
+
+    #--> Gather Sales Mix
+    #NOTE: RETAIL statistics are determined based off of Combined & Monthly. Spreadsheet formulas will determine the Quantity and Totals as well.
+    df = pd.read_csv(gsrFilePath)
+    mask = ~df['Site'].isin(blacklisted_sites)
+    df = df[mask]
+
+    MonthlyAmounts = {}
+    CombinedAmounts = {}
+    AccurateMemberCountAdjuster = {}
+    ChurnDataDictionary = {}
+    ChurnTotal = {}
+    totalCorporateDiscont = 0
+
+    for _, row in df.iterrows():
+        site = row['Site']
+        category = row['Report Category']
+        item_name = row['Item Name']
+        amount = row['Amount']
+        count = row['Count']
+        price = row['Price']
+        quantity = row['Quantity']
+        
+        if site not in blacklisted_sites and item_name is not None and category not in blacklisted_items and item_name not in blacklisted_items:
+
+            if ChurnDataDictionary.get(site) == None:
+                ChurnDataDictionary[site] = {"Terminated":0, "Discontinued":0, "Recharged":0, "Sold":0, "Switched":0}
+            if ChurnDataDictionary.get(Corporation_Totals_Name) == None:
+                ChurnDataDictionary[Corporation_Totals_Name] = {"Terminated":0, "Discontinued":0, "Recharged":0, "Sold":0, "Switched":0}
+            
+            if AccurateMemberCountAdjuster.get(site) == None:
+                AccurateMemberCountAdjuster[site] = 0
+            if item_name in ['WEB Discontinue ARM', 'Discontinue ARM Plan']:
+                if AccurateMemberCountAdjuster.get(site) != None:
+                    AccurateMemberCountAdjuster[site] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                    totalCorporateDiscont += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                    ChurnDataDictionary[site]['Discontinued'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+                    ChurnDataDictionary[Corporation_Totals_Name]['Discontinued'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+
+            washPkg = find_parent(ARM_Recharge_Names, item_name) # Member Count = ARM Recharges
+            if washPkg != None:
+                MONTHLY_STATS[site][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+
+                MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                ChurnDataDictionary[site]['Recharged'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+                ChurnDataDictionary[Corporation_Totals_Name]['Recharged'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+
+            washPkg = find_parent(Website_PKG_Names, item_name, "Monthly") # Member Count = ARM Recharges + Website Sld
+            if washPkg != None:
+                MONTHLY_STATS[site][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+
+                MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                ChurnDataDictionary[site]['Sold'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+                ChurnDataDictionary[Corporation_Totals_Name]['Sold'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+
+            washPkg = find_parent(ARM_Sold_Names, item_name) # Member Count = ARM Recharges + Website Sld + ARM Sld | Gross New Members = ARM Sold
+            if washPkg != None:
+                MONTHLY_STATS[site][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                MONTHLY_STATS[site][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Gross New Members
+
+                MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                ChurnDataDictionary[site]['Sold'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+                ChurnDataDictionary[Corporation_Totals_Name]['Sold'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+            
+            washPkg = find_parent(ARM_Sold_Names, item_name) # Member Count = ARM Recharges + Website Sld
+            if washPkg != None:
+                MONTHLY_STATS[site][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+
+                MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                ChurnDataDictionary[site]['Sold'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+                ChurnDataDictionary[Corporation_Totals_Name]['Sold'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+
+            washPkg = find_parent(ARM_Termination_Names, item_name) # Member Count = ARM Recharges + Website Sld + ARM Sld - ARM Terminations
+            if washPkg != None:
+                MONTHLY_STATS[site][washPkg]['Estimated Member Count'] -= round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Subtract the terminated quantity from the estimated count. We divide by the months in the report to correct for multi-month GSRs
+                MONTHLY_STATS[site][washPkg]['Estimated Member Count'] = abs(MONTHLY_STATS[site][washPkg]['Estimated Member Count'])
+                MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'] -= round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'] = abs(MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Estimated Member Count'])
+                ChurnDataDictionary[site]['Terminated'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+                ChurnDataDictionary[Corporation_Totals_Name]['Terminated'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+            
+            if item_name == "Switch ARM Plan":
+                ChurnDataDictionary[site]['Switched'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+                ChurnDataDictionary[Corporation_Totals_Name]['Switched'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 
+
+            # Handle the Query Server
+            if site == 'Query Server':
+                # We're only going to show the amount of passes sold rather than the redemption for the
+                # Query Server because you cannot redeem passes online.
+                washPkg = find_parent(Website_PKG_Names, item_name, "Monthly")
+                if washPkg != None:
+                    MONTHLY_STATS['Query Server'][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
+                    MONTHLY_STATS['Query Server'][washPkg]['Count'] += count if pd.isna(count) != True else 0
+                    MONTHLY_STATS['Query Server'][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
+                    MONTHLY_STATS['Query Server'][washPkg]['Price'] += price if pd.isna(price) != True else 0
+                    MONTHLY_STATS['Query Server'][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0 # Gross New Members
+    
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Gross New Members'] += round(quantity/monthsInReport) if pd.isna(quantity) != True else 0
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Count'] += count if pd.isna(count) != True else 0
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
+                    if not washPkg in MonthlyAmounts:
+                        MonthlyAmounts[washPkg] = []
+                    MonthlyAmounts[washPkg].append(price if pd.isna(price) != True else 0)
+                
+                washPkg = find_parent(Website_PKG_Names, item_name, "Retail")
+                if washPkg != None:
+                    COMBINED_STATS['Query Server'][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
+                    COMBINED_STATS['Query Server'][washPkg]['Count'] += count if pd.isna(count) != True else 0
+                    COMBINED_STATS['Query Server'][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
+                    COMBINED_STATS['Query Server'][washPkg]['Price'] += price if pd.isna(price) != True else 0
+
+                    COMBINED_STATS[Corporation_Totals_Name][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
+                    COMBINED_STATS[Corporation_Totals_Name][washPkg]['Count'] += count if pd.isna(count) != True else 0
+                    COMBINED_STATS[Corporation_Totals_Name][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
+                    if not washPkg in MonthlyAmounts:
+                        CombinedAmounts[washPkg] = []
+                    CombinedAmounts[washPkg].append(price if pd.isna(price) != True else 0)
+
+            # Any other locations
+            else: 
+                washPkg = find_parent(ARM_PKG_Names, item_name)
+                # Calculate MONTHLY Stats using the redemption items
+                if category in ["ARM Plans Redeemed", "Club Plans Redeemed"] and washPkg is not None:
+                    MONTHLY_STATS[site][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
+                    MONTHLY_STATS[site][washPkg]['Count'] += count if pd.isna(count) != True else 0
+                    MONTHLY_STATS[site][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
+                    MONTHLY_STATS[site][washPkg]['Price'] += abs(price) if pd.isna(price) != True else 0
+
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Quantity'] += quantity if pd.isna(quantity) != True else 0
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Count'] += count if pd.isna(count) != True else 0
+                    MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Amount'] += amount if pd.isna(amount) != True else 0
+                    if not washPkg in MonthlyAmounts:
+                        MonthlyAmounts[washPkg] = []
+                    MonthlyAmounts[washPkg].append(price if pd.isna(price) != True else 0) 
+                elif category in ['Basic Washes'] and item_name is not None and item_name in COMBINED_STATS[site]:
+                    COMBINED_STATS[site][item_name]['Quantity'] += quantity if pd.isna(quantity) != True else 0
+                    COMBINED_STATS[site][item_name]['Count'] += count if pd.isna(count) != True else 0
+                    COMBINED_STATS[site][item_name]['Amount'] += amount if pd.isna(amount) != True else 0
+                    COMBINED_STATS[site][item_name]['Price'] += amount/quantity if pd.isna(quantity) != True else 0
+
+                    COMBINED_STATS[Corporation_Totals_Name][item_name]['Quantity'] += quantity if pd.isna(quantity) != True else 0
+                    COMBINED_STATS[Corporation_Totals_Name][item_name]['Count'] += count if pd.isna(count) != True else 0
+                    COMBINED_STATS[Corporation_Totals_Name][item_name]['Amount'] += amount if pd.isna(amount) != True else 0
+                    if not washPkg in CombinedAmounts:
+                        CombinedAmounts[item_name] = []
+                    CombinedAmounts[item_name].append(price if pd.isna(price) != True else 0)
+
+    for washPkg in ARM_Sold_Names:
+        COMBINED_STATS[Corporation_Totals_Name][washPkg]['Price'] = COMBINED_STATS[Corporation_Totals_Name][washPkg]['Amount']/COMBINED_STATS[Corporation_Totals_Name][washPkg]['Quantity']
+        MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Price'] = MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Amount']/MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Quantity']
+        #COMBINED_STATS[Corporation_Totals_Name][washPkg]['Price'] = sum(CombinedAmounts[washPkg])/len(CombinedAmounts[washPkg])
+        #MONTHLY_STATS[Corporation_Totals_Name][washPkg]['Price'] = sum(MonthlyAmounts[washPkg])/len(MonthlyAmounts[washPkg])
+    AccurateMemberCountAdjuster[Corporation_Totals_Name] = totalCorporateDiscont
+
+    for location, stats in ChurnDataDictionary.items():
+        # ChurnDataDictionary[site] = {"Terminated":0, "Discontinued":0, "Recharged":0, "Sold":0, "Switched":0}
+        ChurnTotal[location] = (ChurnDataDictionary[location]["Terminated"]+ChurnDataDictionary[location]["Discontinued"]) / (ChurnDataDictionary[location]["Recharged"]+ChurnDataDictionary[location]["Sold"]+ChurnDataDictionary[location]["Discontinued"]-ChurnDataDictionary[location]["Switched"])
+
+    print(MONTHLY_STATS)
+    print("")
+    print(MONTHLY_SALES)
+    #########################################################################################################################################################################
+    ############################################################################## XCL LOADING ##############################################################################
+    #########################################################################################################################################################################
+    
+    # Load the workbook
+    wb = openpyxl.load_workbook(AWP_Template)
+
+    # Select the sheet you want to work with
+    ws = wb["Wash Counts"]
+
+    # Initialize an empty dictionary to store the values and their positions
+    value_position_dict = {}
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+    total_cars_washed = 0
+
+
+    # Loop through the first row
+    for cell in ws.iter_rows(min_row=1, max_row=1, min_col=1, max_col=ws.max_column):
+        for individual_cell in cell:
+            value = individual_cell.value
+            position = individual_cell.coordinate
+            if value:
+                value_position_dict[value] = position
+                if value == "Total Cars Washed":
+                    break
+        if "Total Cars Washed" in value_position_dict:
+            break
+
+    # Function to convert cell coordinates to row, col tuple
+    def coordinate_to_tuple(coordinate):
+        col_str = ''
+        row_str = ''
+        for char in coordinate:
+            if char.isalpha():
+                col_str += char
+            else:
+                row_str += char
+        row = int(row_str)
+        col = 0
+        for i, char in enumerate(reversed(col_str)):
+            col += (ord(char.upper()) - ord('A') + 1) * (26 ** i)
+        return row, col
+
+    # Initialize starting cell based on the first value in the dictionary
+    starting_cell = list(value_position_dict.values())[0]
+
+    # Convert coordinate to row and column tuple
+    row, col = coordinate_to_tuple(starting_cell)
+
+    # Move down 3 rows to row 4
+    row += 3
+
+    # Find the first blank cell for the first label
+    while ws.cell(row=row, column=col).value is not None:
+        row += 1
+
+    # Insert a new row for the new month
+    ws.insert_rows(row + 1)
+
+    # Create a NamedStyle object for reusability
+    copy_style = NamedStyle(name="copy_style")
+
+    # Loop through all labels in value_position_dict
+    for currentLabel, starting_cell in value_position_dict.items():
+        if currentLabel not in COMBINED_STATS or not COMBINED_STATS[currentLabel]:
+            if currentLabel == 'Total Cars Washed':
+                # Get the formula from the cell above
+                above_formula = ws.cell(row=row - 1, column=col).value
+                
+                if isinstance(above_formula, str) and above_formula.startswith("="):
+                    # Update the row numbers in the formula
+                    updated_formula = above_formula.replace(str(row - 1), str(row))
+                    
+                    # Set the updated formula to the current "Total Cars Washed" cell
+                    ws.cell(row=row, column=col).value = updated_formula
+            col += 6
+            continue
+            # Copy the formatting for all cells in the new row from the row above
+        for col_num in range(1, ws.max_column + 1):
+            new_cell = ws.cell(row=row + 1, column=col_num)
+            above_cell = ws.cell(row=row, column=col_num)
+            
+            if above_cell.has_style:
+                new_cell._style = copy(above_cell._style)
+
+        # Insert the data here for Month, Car Count, and NET Sales
+        left_cell_value = ws.cell(row=row, column=col - 3).value
+        if len(left_cell_value.split()) > 1:
+            if left_cell_value.split()[1] == 'Jan':
+                next_month_index = (months.index(left_cell_value.split()[1]) + 1) % 12
+            else:
+                print("Invalid left cell value for date. Expecting 2 parts, str|num got unexpected.")
+                break
+        else:
+            next_month_index = (months.index(left_cell_value) + 1) % 12
+                
+        next_month = months[next_month_index]
+        if next_month == 'Jan':
+            newYear = ws.cell(row=row-9, column=col - 3).value.split()[0]
+            ws.cell(row=row + 1, column=col - 3).value = f"{int(newYear)+1} Jan"
+        else:
+            ws.cell(row=row + 1, column=col - 3).value = next_month
+
+        total_cars_washed += sum(washItemData.get('Quantity', 0) for washItemData in COMBINED_STATS[currentLabel].values())
+        car_count = sum(washItemData.get('Quantity', 0) for washItemData in COMBINED_STATS[currentLabel].values())
+        ws.cell(row=row, column=col).value = car_count
+
+        NET_Wash_Sales = COMBINED_SALES[currentLabel]['NET Sales']# - MONTHLY_SALES[currentLabel]['NET Sales']
+        ws.cell(row=row, column=col + 1).value = NET_Wash_Sales
+
+        col += 6  # Move over 6 columns for the next label
+
+    #--> Worksheet: Membership Data
+    ws2 = wb['Membership Data']
+
+    # Initialize variable to store the coordinate of the first blank cell in row 3
+    first_blank_in_row3 = None
+
+    # Loop through the cells in row 3 starting from column F (column index 6)
+    for cell in ws2.iter_rows(min_row=3, max_row=3, min_col=6, max_col=ws2.max_column):
+        for individual_cell in cell:
+            if individual_cell.value is None:
+                first_blank_in_row3 = individual_cell.coordinate
+                break  # Break the inner loop
+        if first_blank_in_row3:
+            break  # Break the outer loop if we found the first blank cell
+
+    print(f"First Blank Cell in Row 3: {first_blank_in_row3}")
+
+    # Initialize starting column (F) and row (3)
+    col = 6  # Column F
+    row = 3
+
+    # Parse row 3 until we find a blank cell, starting from column F
+    while ws2.cell(row=row, column=col).value is not None:
+        col += 1
+
+    # Capture the cell above the blank one for the month and year
+    above_cell_value = ws2.cell(row=row - 1, column=col).value
+
+    # Extract the month and year
+    month, year = above_cell_value.split()
+    year = int(year)
+
+    if int("20"+str(year)) != int(GSR_YEAR) and overrideInputValidation == None:
+        return "error502", f"There was an error loading the data into the workbook. It seems that the GSR you submitted is from {GSR_YEAR}, while the databook template you uploaded is ready to have {year} data loaded into it. "
+    if months.index(month) != GSR_MONTH-1 and overrideInputValidation == None:
+        return "error503", f"There was an error loading the data into the workbook. It seems that the GSR you submitted is from {months[GSR_MONTH-1]}, while the databook template you uploaded is ready to have {month} data loaded into it. "
+
+    # Define the list of months
+    months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+    # Find the next month and year
+    next_month_index = (months.index(month) + 1) % 12
+    next_month = months[next_month_index]
+    if next_month == 'Jan':
+        year += 1
+
+    # Insert a new column ahead of the current column
+    ws2.insert_cols(col + 1)
+
+    # Copy the formatting and values/formulas for all cells in the new column from the column to the left
+    for row_num in range(1, ws2.max_row + 1):
+
+        new_cell2 = ws2.cell(row=row_num, column=col)
+        left_cell2 = ws2.cell(row=row_num, column=col - 1)
+        
+        if left_cell2.has_style:
+            new_cell2._style = copy(left_cell2._style)
+        
+        new_cell = ws2.cell(row=row_num, column=col + 1)
+        left_cell = ws2.cell(row=row_num, column=col)
+        
+        if left_cell.has_style:
+            new_cell._style = copy(left_cell._style)
+
+    # Set the value for the new month and year in the new column
+    ws2.cell(row=row - 1, column=col + 1).value = f"{next_month} {str(year)[-2:]}"
+
+    #--> Insert Data
+
+    def update_formula(formula, col_shift):
+        
+        def replacer(match):
+            col_letter = match.group(1)
+            col_idx = column_index_from_string(col_letter)
+            new_col_idx = col_idx + col_shift
+            new_col_letter = get_column_letter(new_col_idx)
+            return new_col_letter + match.group(2)
+        
+        return re.sub(r'([A-Z]+)([0-9]+)', replacer, formula)
+
+    # Loop for Estimated Member Count
+    while ws2.cell(row=row, column=5).value != 'Combined':
+        store = ws2.cell(row=row, column=5).value
+        if store:  # Check if store is not None or empty
+            prefixedStore = f"wash*u - {store}" if store != "Admin" else "Query Server"
+            if prefixedStore in MONTHLY_STATS:
+                total_estimated_count = sum(wash_data.get("Estimated Member Count", 0) for wash_data in MONTHLY_STATS[prefixedStore].values()) - AccurateMemberCountAdjuster[prefixedStore]
+                ws2.cell(row=row, column=col).value = total_estimated_count
+            
+        row += 1
+    
+    # Copy and modify formula for the new "Combined" cell (Estimated Member Count)
+    formula_to_copy = ws2.cell(row=row, column=col-1).value
+    print(formula_to_copy)
+    if formula_to_copy.startswith('='):
+        new_formula = update_formula(formula_to_copy, 1)
+        ws2.cell(row=row, column=col).value = new_formula
+        
+
+    # Skip 2 rows to go to the NET Sales block
+    row += 2
+
+    # Loop for NET Sales
+    while ws2.cell(row=row, column=5).value != 'Combined':
+        store = ws2.cell(row=row, column=5).value
+        if store:  # Check if store is not None or empty
+            prefixedStore = f"wash*u - {store}" if store != "Admin" else "Query Server"
+            if prefixedStore in MONTHLY_SALES:
+                net_sales = MONTHLY_SALES[prefixedStore].get("NET Sales", 0)
+                ws2.cell(row=row, column=col).value = net_sales
+        row += 1
+
+    # Copy and modify formula for the new "Combined" cell (Estimated Member Count)
+    formula_to_copy = ws2.cell(row=row, column=col-1).value
+    if formula_to_copy.startswith('='):
+        new_formula = update_formula(formula_to_copy, 1)
+        ws2.cell(row=row, column=col).value = new_formula
+
+    # Skip 2 rows to go to the Quantity block
+    row += 2
+
+    # Loop for Quantity
+    while ws2.cell(row=row, column=5).value != 'Combined':
+        store = ws2.cell(row=row, column=5).value
+        if store:  # Check if store is not None or empty
+            prefixedStore = f"wash*u - {store}"
+            if prefixedStore in MONTHLY_STATS:
+                total_quantity = sum(wash_data.get("Quantity", 0) for wash_data in MONTHLY_STATS[prefixedStore].values())
+                ws2.cell(row=row, column=col).value = total_quantity
+        row += 1
+
+        # Copy and modify formula for the new "Combined" cell (Estimated Member Count)
+    formula_to_copy = ws2.cell(row=row, column=col-1).value
+    print(formula_to_copy)
+    if formula_to_copy.startswith('='):
+        new_formula = update_formula(formula_to_copy, 1)
+        ws2.cell(row=row, column=col).value = new_formula
+
+
+    for row_num in range(row + 1, ws2.max_row + 1):
+        new_cell = ws2.cell(row=row_num, column=col)
+        left_cell = ws2.cell(row=row_num, column=col - 1)
+        
+        if left_cell.value and "=" in str(left_cell.value):  # Check if it's a formula
+            new_formula = update_formula(left_cell.value, 1)
+            new_cell.value = new_formula
+
+        if left_cell.has_style:
+            new_cell._style = copy(left_cell._style)
+
+
+    # Save the workbook
+    wb.save("NCW_Manager_Portal/your_file.xlsx")
+    
+    wbName = f"Membership Retail and AWP Databook - {short_date_str}"
     return wb, wbName
